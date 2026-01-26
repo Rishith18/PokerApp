@@ -12,7 +12,7 @@ from poker_bot.game_engine.card import Card
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BET_SIZE_MULTS: Tuple[float, ...] = (0.5, 1.0, -1)  # -1 = all-in
+DEFAULT_BET_SIZE_MULTS: Tuple[float, ...] = (0.25, 0.5, 0.75, 1.0, 2.0, -1)  # -1 = all-in
 
 
 @dataclass

@@ -45,7 +45,7 @@ def main() -> None:
         small_blind=0.5,
         big_blind=1.0,
         starting_stack=args.stack,
-        max_street="flop",
+        max_street=bot.max_street,
         bet_size_mults=bot.bet_size_mults,
     )
 
@@ -55,7 +55,8 @@ def main() -> None:
     wins = [0, 0]
     hands = 0
 
-    print("Heads-up NLHE vs CFR bot. Preflop + Flop only. Commands: f/x/c/r <amt>")
+    street_msg = {"flop": "Preflop + Flop only", "turn": "Preflop through Turn", "river": "Preflop through River"}
+    print("Heads-up NLHE vs CFR bot. %s. Commands: f/x/c/r <amt>" % street_msg.get(bot.max_street, "Preflop + Flop only"))
     print("You are P%d. Bot is P%d.\n" % (human, 1 - human))
 
     while True:

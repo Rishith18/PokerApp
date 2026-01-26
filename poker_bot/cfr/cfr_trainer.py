@@ -47,8 +47,8 @@ class CFRTrainer:
         big_blind: float = 1.0,
         n_preflop_buckets: int = 20,
         n_postflop_buckets: int = 10,
-        max_street: str = "flop",
-        bet_size_mults: Sequence[float] = (0.5, 1.0, -1),
+        max_street: str = "river",
+        bet_size_mults: Sequence[float] = (0.25, 0.5, 0.75, 1.0, 2.0, -1),
         seed: Optional[int] = None,
     ) -> None:
         self.starting_stack = starting_stack
@@ -96,19 +96,21 @@ class CFRTrainer:
         return inf
 
     def _sample_deal(self) -> Tuple[List[Card], List[Card], List[Card]]:
+        """Return (hole0, hole1, board). Board length: 3 (flop), 4 (flop+turn), or 5 (full)."""
         self._deck.reset()
         self._deck.shuffle()
         h0 = self._deck.deal(2)
         h1 = self._deck.deal(2)
-        flop = self._deck.deal(3)
-        return h0, h1, flop
+        n_board = {"flop": 3, "turn": 4, "river": 5}.get(self.max_street, 3)
+        board = self._deck.deal(n_board)
+        return h0, h1, board
 
     def _payoff(
         self,
         state: GameState,
         hole0: List[Card],
         hole1: List[Card],
-        flop: List[Card],
+        board: List[Card],
         start_stacks: Tuple[float, float],
     ) -> float:
         """Compute terminal payoff for P0 (chip profit)."""
@@ -128,7 +130,7 @@ class CFRTrainer:
         state: GameState,
         hole0: List[Card],
         hole1: List[Card],
-        flop: List[Card],
+        board: List[Card],
         history: str,
         reach0: float,
         reach1: float,
@@ -140,7 +142,7 @@ class CFRTrainer:
         External sampling: we only branch on updater's actions; sample for opponent.
         """
         if state.is_terminal():
-            return self._payoff(state, hole0, hole1, flop, start_stacks)
+            return self._payoff(state, hole0, hole1, board, start_stacks)
 
         legal = state.legal_actions()
         if not legal:
@@ -159,14 +161,14 @@ class CFRTrainer:
             n = len(legal)
             cfv_action = np.zeros(n)
             for i, act in enumerate(legal):
-                ns = self.game.step_with_fixed_board(state, act, flop)
+                ns = self.game.step_with_fixed_board(state, act, board)
                 h2 = history + action_token_for_history(state, act)
                 if cur == 0:
                     r0, r1 = reach0 * strategy[i], reach1
                 else:
                     r0, r1 = reach0, reach1 * strategy[i]
                 cfv_action[i] = self._cfr(
-                    ns, hole0, hole1, flop, h2, r0, r1, updater, start_stacks
+                    ns, hole0, hole1, board, h2, r0, r1, updater, start_stacks
                 )
             cfv = np.dot(strategy, cfv_action)
             for i in range(n):
@@ -176,19 +178,19 @@ class CFRTrainer:
         else:
             i = np.random.choice(len(legal), p=strategy)
             act = legal[i]
-            ns = self.game.step_with_fixed_board(state, act, flop)
+            ns = self.game.step_with_fixed_board(state, act, board)
             h2 = history + action_token_for_history(state, act)
             if cur == 0:
                 r0, r1 = reach0 * strategy[i], reach1
             else:
                 r0, r1 = reach0, reach1 * strategy[i]
             return self._cfr(
-                ns, hole0, hole1, flop, h2, r0, r1, updater, start_stacks
+                ns, hole0, hole1, board, h2, r0, r1, updater, start_stacks
             )
 
     def iteration(self, updater: int) -> None:
         """Run one CFR iteration (one sampled deal)."""
-        hole0, hole1, flop = self._sample_deal()
+        hole0, hole1, board = self._sample_deal()
         button = random.randint(0, 1)
         state = self.game.start_hand_with_deal(button, hole0, hole1)
         start_stacks = (self.starting_stack, self.starting_stack)
@@ -196,7 +198,7 @@ class CFRTrainer:
             state,
             hole0,
             hole1,
-            flop,
+            board,
             "",
             reach0=1.0,
             reach1=1.0,

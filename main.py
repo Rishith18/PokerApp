@@ -32,11 +32,18 @@ def main() -> None:
         "--bet-mults",
         type=str,
         default=None,
-        help="Bet size multipliers, comma-separated (e.g. 0.25,0.5,0.75,1,2,-1). -1=all-in. Default: 0.5,1,-1",
+        help="Bet size multipliers, comma-separated (e.g. 0.25,0.5,0.75,1,2,-1). -1=all-in. Default: 0.25,0.5,0.75,1,2,-1",
+    )
+    ap.add_argument(
+        "--max-street",
+        type=str,
+        choices=("flop", "turn", "river"),
+        default="river",
+        help="Last street to play (flop, turn, or river). Default: river",
     )
     args = ap.parse_args()
 
-    bet_mults: tuple[float, ...] = (0.5, 1.0, -1)
+    bet_mults: tuple[float, ...] = (0.25, 0.5, 0.75, 1.0, 2.0, -1)
     if args.bet_mults:
         bet_mults = tuple(float(x.strip()) for x in args.bet_mults.split(","))
 
@@ -46,12 +53,12 @@ def main() -> None:
         big_blind=1.0,
         n_preflop_buckets=20,
         n_postflop_buckets=10,
-        max_street="flop",
+        max_street=args.max_street,
         bet_size_mults=bet_mults,
         seed=args.seed,
     )
 
-    logger.info("Training CFR for %d iterations (preflop + flop, 100 BB)", args.iterations)
+    logger.info("Training CFR for %d iterations (preflop through %s, 100 BB)", args.iterations, args.max_street)
     save_path = args.output if args.save_every else None
     for t in tqdm(range(args.iterations), desc="CFR"):
         trainer.iteration(updater=t % 2)
@@ -70,7 +77,7 @@ def main() -> None:
         bot = PokerBot.from_pickle(args.output)
         game = PokerGame(
             0.5, 1.0, args.stack,
-            max_street="flop",
+            max_street=bot.max_street,
             bet_size_mults=bot.bet_size_mults,
             seed=42,
         )

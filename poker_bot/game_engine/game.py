@@ -25,8 +25,8 @@ class PokerGame:
         big_blind: float = 1.0,
         starting_stack: float = 100.0,
         seed: Optional[int] = None,
-        max_street: str = "flop",
-        bet_size_mults: Sequence[float] = (0.5, 1.0, -1),
+        max_street: str = "river",
+        bet_size_mults: Sequence[float] = (0.25, 0.5, 0.75, 1.0, 2.0, -1),
     ) -> None:
         self.small_blind = small_blind
         self.big_blind = big_blind
@@ -117,7 +117,7 @@ class PokerGame:
         action: Action,
         flop: List[Card],
     ) -> GameState:
-        """Like step but use fixed flop (for CFR). No turn/river when max_street=flop."""
+        """Like step but use fixed board (for CFR). flop can be 3, 4, or 5 cards."""
         return self._step_impl(state, action, fixed_flop=flop)
 
     def _step_impl(
@@ -141,6 +141,9 @@ class PokerGame:
             extra = fixed_flop[4:5] if fixed_flop and len(fixed_flop) >= 5 else self._deck.deal(1)
             s = s.with_board(s.board + extra)
         elif r == "turn" and self.max_street == "flop":
+            object.__setattr__(s, "round_name", "showdown")
+            s = self.resolve_showdown(s)
+        elif r == "river" and self.max_street == "turn":
             object.__setattr__(s, "round_name", "showdown")
             s = self.resolve_showdown(s)
         elif r == "showdown":
