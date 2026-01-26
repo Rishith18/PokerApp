@@ -91,7 +91,7 @@ poker_web/
 
    Open your web browser and navigate to:
    ```
-   http://localhost:5000
+   http://localhost:8080
    ```
 
 3. **Start Playing!**
@@ -261,7 +261,7 @@ python main.py
 **Solution:**
 1. Check server logs for detailed error messages
 2. Verify the action is legal according to `legal_actions`
-3. Ensure server is running and accessible at `localhost:5000`
+3. Ensure server is running and accessible at `localhost:8080`
 
 ### Animation issues
 
@@ -288,15 +288,15 @@ Test the API directly using curl:
 
 ```bash
 # Start new hand
-curl -X POST http://localhost:5000/api/game/new
+curl -X POST http://localhost:8080/api/game/new
 
 # Take action
-curl -X POST http://localhost:5000/api/game/action \
+curl -X POST http://localhost:8080/api/game/action \
   -H "Content-Type: application/json" \
   -d '{"action": "call"}'
 
 # Get state
-curl http://localhost:5000/api/game/state
+curl http://localhost:8080/api/game/state
 ```
 
 ### Debugging

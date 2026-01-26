@@ -71,13 +71,13 @@ def main():
     logger.info(f"Strategy file: {STRATEGY_PATH}")
     logger.info(f"Frontend directory: {FRONTEND_DIR}")
     logger.info("=" * 60)
-    logger.info("\nServer running at: http://localhost:5000")
-    logger.info("Open your browser and navigate to http://localhost:5000\n")
+    logger.info("\nServer running at: http://localhost:8080")
+    logger.info("Open your browser and navigate to http://localhost:8080\n")
 
     # Run Flask development server
     app.run(
         host='0.0.0.0',
-        port=5000,
+        port=8080,
         debug=True,
         use_reloader=True
     )
