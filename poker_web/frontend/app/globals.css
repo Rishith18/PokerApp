@@ -1,0 +1,234 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer base {
+  :root {
+    --background: 210 40% 8%;
+    --foreground: 210 20% 98%;
+    --card: 210 35% 12%;
+    --card-foreground: 210 20% 98%;
+    --popover: 210 35% 12%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 211 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 30% 18%;
+    --secondary-foreground: 210 20% 90%;
+    --muted: 210 25% 15%;
+    --muted-foreground: 210 15% 60%;
+    --accent: 211 100% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 210 20% 20%;
+    --input: 210 20% 20%;
+    --ring: 211 100% 50%;
+    --chart-1: 211 100% 50%;
+    --chart-2: 150 50% 40%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 1rem;
+    --sidebar-background: 210 35% 10%;
+    --sidebar-foreground: 210 20% 90%;
+    --sidebar-primary: 211 100% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 25% 15%;
+    --sidebar-accent-foreground: 210 20% 90%;
+    --sidebar-border: 210 20% 20%;
+    --sidebar-ring: 211 100% 50%;
+
+    --table: 150 32% 22%;
+    --glass: 0 0% 100%;
+    --glass-border: 0 0% 100%;
+
+    /* Premium Glass System */
+    --glass-light: rgba(255, 255, 255, 0.1);
+    --glass-border-premium: rgba(255, 255, 255, 0.18);
+    --glass-blur-strong: 20px;
+    --glass-blur-medium: 16px;
+    --glass-blur-light: 12px;
+
+    /* Glow Colors */
+    --glow-blue: rgba(0, 122, 255, 0.3);
+    --glow-blue-strong: rgba(0, 122, 255, 0.5);
+    --glow-gold: rgba(255, 184, 0, 0.4);
+    --glow-emerald: rgba(52, 211, 153, 0.4);
+
+    /* Table Gradients */
+    --table-gradient-start: #2D5C3F;
+    --table-gradient-end: #1a3a28;
+
+    /* Button Gradients */
+    --button-primary-start: #0A84FF;
+    --button-primary-end: #0066CC;
+    --button-danger-start: #8B4545;
+    --button-danger-end: #6B3434;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(0, 122, 255, 0.3), 0 0 20px rgba(0, 122, 255, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(0, 122, 255, 0.5), 0 0 40px rgba(0, 122, 255, 0.2);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes card-deal {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-card-deal {
+  animation: card-deal 0.4s ease-out forwards;
+}
+
+@keyframes card-flip {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(180deg);
+  }
+}
+
+.card-flip-reveal {
+  animation: card-flip 0.5s ease-in-out forwards;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes rotate-gradient {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-rotate-gradient {
+  animation: rotate-gradient 3s linear infinite;
+}
+
+@keyframes chip-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.animate-chip-pulse {
+  animation: chip-pulse 0.6s ease-out;
+}
+
+@keyframes card-float-enhanced {
+  0%, 100% {
+    transform: translateY(0);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    transform: translateY(-6px);
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+  }
+}
+
+.animate-card-float-enhanced {
+  animation: card-float-enhanced 4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes turn-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px var(--glow-blue),
+                0 0 40px var(--glow-blue),
+                inset 0 0 20px var(--glow-blue);
+  }
+  50% {
+    box-shadow: 0 0 30px var(--glow-blue-strong),
+                0 0 60px var(--glow-blue-strong),
+                inset 0 0 30px var(--glow-blue-strong);
+  }
+}
+
+.animate-turn-glow {
+  animation: turn-glow 2s ease-in-out infinite;
+}
+
+@keyframes vignette-pulse {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-vignette-pulse {
+  animation: vignette-pulse 4s ease-in-out infinite;
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}

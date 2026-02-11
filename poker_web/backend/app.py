@@ -34,25 +34,18 @@ app.config['SECRET_KEY'] = 'poker-dev-secret-key-change-in-production'
 app.config['JSON_SORT_KEYS'] = False
 
 # Paths
-FRONTEND_DIR = Path(__file__).parent.parent / 'frontend'
 STRATEGY_PATH = project_root / 'strategy_ext.pkl'
 
 
-# Serve frontend files
+# Health check endpoint (root)
 @app.route('/')
 def index():
-    """Serve the main HTML page."""
-    return send_file(FRONTEND_DIR / 'index.html')
-
-
-@app.route('/<path:path>')
-def serve_static(path):
-    """Serve static frontend files (CSS, JS, assets)."""
-    try:
-        return send_from_directory(FRONTEND_DIR, path)
-    except Exception as e:
-        logger.error(f"Error serving static file {path}: {e}")
-        return "File not found", 404
+    """API health check endpoint."""
+    return {
+        'status': 'ok',
+        'message': 'Poker API Server is running',
+        'note': 'Frontend runs on http://localhost:3000'
+    }
 
 
 def main():
@@ -67,12 +60,12 @@ def main():
     init_routes(app, str(STRATEGY_PATH))
 
     logger.info("=" * 60)
-    logger.info("Starting Poker Web Server")
+    logger.info("Starting Poker API Server")
     logger.info(f"Strategy file: {STRATEGY_PATH}")
-    logger.info(f"Frontend directory: {FRONTEND_DIR}")
     logger.info("=" * 60)
-    logger.info("\nServer running at: http://localhost:8080")
-    logger.info("Open your browser and navigate to http://localhost:8080\n")
+    logger.info("\nAPI Server running at: http://localhost:8080")
+    logger.info("Frontend (Next.js): Start with 'cd poker_web/frontend && pnpm dev'")
+    logger.info("Then open: http://localhost:3000\n")
 
     # Run Flask development server
     app.run(

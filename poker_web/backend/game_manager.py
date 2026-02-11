@@ -27,18 +27,19 @@ def card_to_string(card) -> str:
     """Convert a Card object to string format (e.g., 'As', 'Kh', '2c')."""
     if card is None:
         return ""
-    # Card has rank and suit attributes
-    rank_map = {
-        14: 'A', 13: 'K', 12: 'Q', 11: 'J',
-        10: 'T', 9: '9', 8: '8', 7: '7',
-        6: '6', 5: '5', 4: '4', 3: '3', 2: '2'
-    }
-    suit_map = {'s': 's', 'h': 'h', 'd': 'd', 'c': 'c'}
 
     # Handle different card representations
     if hasattr(card, 'rank') and hasattr(card, 'suit'):
+        # Card uses integer representation: rank 0-12 (2-A), suit 0-3 (s,h,d,c)
+        # Map from internal representation to display format
+        rank_map = {
+            0: '2', 1: '3', 2: '4', 3: '5', 4: '6', 5: '7', 6: '8',
+            7: '9', 8: 'T', 9: 'J', 10: 'Q', 11: 'K', 12: 'A'
+        }
+        suit_map = {0: 's', 1: 'h', 2: 'd', 3: 'c'}
+
         rank_str = rank_map.get(card.rank, str(card.rank))
-        suit_str = suit_map.get(card.suit.lower(), card.suit.lower())
+        suit_str = suit_map.get(card.suit, str(card.suit))
         return f"{rank_str}{suit_str}"
     else:
         # Already a string or other format
@@ -78,11 +79,13 @@ class GameManager:
         logger.info(f"Loaded bot from {strategy_path}")
 
         # Initialize game
+        # Force full game (preflop -> flop -> turn -> river) for web interface
+        # even if bot was trained on limited streets
         self.game = PokerGame(
             small_blind=0.5,
             big_blind=1.0,
             starting_stack=100.0,
-            max_street=self.bot.max_street,
+            max_street="river",  # Always play full game with turn and river
             bet_size_mults=self.bot.bet_size_mults,
         )
 
@@ -152,6 +155,9 @@ class GameManager:
                 'wins': {'player': self.wins[1], 'bot': self.wins[0]},
                 'current_player': None,
                 'can_act': False,
+                'call_amount': 0.0,
+                'small_blind': float(self.game.small_blind),
+                'big_blind': float(self.game.big_blind),
             }
 
         # Get pot (includes current round bets)
@@ -174,11 +180,13 @@ class GameManager:
         if reveal_bot_cards or self.state.is_showdown():
             bot_cards = [card_to_string(c) for c in (self.state.hole_cards[self.bot_player] or [])]
 
-        # Get legal actions
+        # Get legal actions and call amount
         legal_actions = []
+        call_amount = 0.0
         if not self.state.is_terminal():
             for action in self.state.legal_actions():
                 legal_actions.append(action_to_str(action))
+            call_amount = float(self.state.call_amount)
 
         # Determine current player
         current_player = None
@@ -224,12 +232,15 @@ class GameManager:
             'player_cards': player_cards,
             'bot_cards': bot_cards,
             'legal_actions': legal_actions,
+            'call_amount': call_amount,
             'last_action': last_action,
             'winner': winner,
             'hand_over': self.state.is_terminal(),
             'wins': {'player': self.wins[1], 'bot': self.wins[0]},
             'current_player': current_player,
             'can_act': can_act,
+            'small_blind': float(self.state.small_blind),
+            'big_blind': float(self.state.big_blind),
         }
 
     def process_player_action(self, action_str: str) -> Dict[str, Any]:
@@ -256,13 +267,20 @@ class GameManager:
             return self.get_state_dict()
 
         # Apply player action
-        logger.info(f"Player action: {action_str}")
+        logger.info(f"Player action: {action_str} | Round: {self.state.round_name} | Board: {len(self.state.board)} cards")
         self.history += action_token_for_history(self.state, action)
         self.state = self.game.step(self.state, action)
+
+        logger.info(f"After player action - Round: {self.state.round_name} | Board: {len(self.state.board)} cards | Terminal: {self.state.is_terminal()}")
 
         # Check if hand is over
         if self.state.is_terminal():
             return self._handle_hand_end()
+
+        # Check if both players are all-in after player action
+        if self._both_players_all_in():
+            logger.info("Both players all-in after player action, dealing remaining cards to showdown")
+            return self._handle_all_in_showdown()
 
         # Bot's turn - process bot actions until it's player's turn or hand ends
         return self._process_bot_actions()
@@ -277,23 +295,110 @@ class GameManager:
             # Get bot action
             legal_actions = self.state.legal_actions()
             if not legal_actions:
+                logger.info(f"No legal actions available. Round: {self.state.round_name}, Terminal: {self.state.is_terminal()}")
+                # Check if both players are all-in (no chips left)
+                if self._both_players_all_in():
+                    logger.info("Both players all-in, dealing remaining cards to showdown")
+                    return self._handle_all_in_showdown()
                 break
 
             bot_action = self.bot.get_action(self.state, self.history, sample=True)
             if bot_action is None:
                 bot_action = legal_actions[0]
 
-            logger.info(f"Bot action: {action_to_str(bot_action)}")
+            logger.info(f"Bot action: {action_to_str(bot_action)} | Round: {self.state.round_name} | Board: {len(self.state.board)} cards")
 
             # Apply bot action
             self.history += action_token_for_history(self.state, bot_action)
             self.state = self.game.step(self.state, bot_action)
 
+            logger.info(f"After bot action - Round: {self.state.round_name} | Board: {len(self.state.board)} cards | Terminal: {self.state.is_terminal()}")
+
             # Check if hand is over
             if self.state.is_terminal():
                 return self._handle_hand_end()
 
+        # Check if we need to handle all-in after player action too
+        if not self.state.is_terminal() and self._both_players_all_in():
+            logger.info("Both players all-in after action sequence, dealing remaining cards to showdown")
+            return self._handle_all_in_showdown()
+
         return self.get_state_dict()
+
+    def _both_players_all_in(self) -> bool:
+        """Check if both players are all-in (have 0 chips remaining)."""
+        if self.state is None:
+            return False
+        return self.state.stacks[0] <= 0.01 and self.state.stacks[1] <= 0.01
+
+    def _handle_all_in_showdown(self) -> Dict[str, Any]:
+        """Handle all-in scenario by dealing remaining cards and going to showdown.
+
+        When both players are all-in, we need to deal out the remaining community
+        cards and resolve the hand at showdown.
+
+        Returns:
+            Final game state dictionary with revealed cards and runout_board info
+        """
+        logger.info(f"All-in showdown - Current round: {self.state.round_name}, Board: {len(self.state.board)} cards")
+
+        # Track board states during runout for frontend animation
+        runout_boards = []
+        initial_board_size = len(self.state.board)
+
+        # Deal remaining cards based on current round
+        while self.state.round_name not in ("showdown", "terminal"):
+            # Manually advance to next street and deal cards
+            if self.state.round_name == "preflop":
+                # Deal flop (3 cards)
+                self.state = self.state._advance_street(self.state)
+                if len(self.state.board) == 0:
+                    flop_cards = self.game._deck.deal(3)
+                    self.state = self.state.with_board(flop_cards)
+                    runout_boards.append({
+                        'street': 'flop',
+                        'board': [card_to_string(c) for c in self.state.board]
+                    })
+                    logger.info(f"Dealt flop: {[str(c) for c in flop_cards]}")
+            elif self.state.round_name == "flop":
+                # Deal turn (1 card)
+                self.state = self.state._advance_street(self.state)
+                if len(self.state.board) == 3:
+                    turn_card = self.game._deck.deal(1)
+                    self.state = self.state.with_board(self.state.board + turn_card)
+                    runout_boards.append({
+                        'street': 'turn',
+                        'board': [card_to_string(c) for c in self.state.board]
+                    })
+                    logger.info(f"Dealt turn: {str(turn_card[0])}")
+            elif self.state.round_name == "turn":
+                # Deal river (1 card)
+                self.state = self.state._advance_street(self.state)
+                if len(self.state.board) == 4:
+                    river_card = self.game._deck.deal(1)
+                    self.state = self.state.with_board(self.state.board + river_card)
+                    runout_boards.append({
+                        'street': 'river',
+                        'board': [card_to_string(c) for c in self.state.board]
+                    })
+                    logger.info(f"Dealt river: {str(river_card[0])}")
+            elif self.state.round_name == "river":
+                # Advance to showdown
+                self.state = self.state._advance_street(self.state)
+                break
+
+        # Resolve showdown
+        self.state = self.game.resolve_showdown(self.state)
+
+        # Get the final state and add runout info
+        result = self._handle_hand_end()
+
+        # Add runout board progression for frontend animation
+        if runout_boards:
+            result['all_in_runout'] = runout_boards
+            logger.info(f"All-in runout complete: {len(runout_boards)} streets dealt")
+
+        return result
 
     def _handle_hand_end(self) -> Dict[str, Any]:
         """Handle end of hand, update statistics, return final state.
@@ -306,6 +411,10 @@ class GameManager:
             if not (self.state.folded is not None):
                 # Showdown - winner determined by hand strength
                 self.wins[self.state.winner] += 1
+                logger.info(f"Showdown result - Winner index: {self.state.winner} ({'Bot' if self.state.winner == 0 else 'Human'})")
+                logger.info(f"Bot cards: {[str(c) for c in (self.state.hole_cards[0] or [])]}")
+                logger.info(f"Human cards: {[str(c) for c in (self.state.hole_cards[1] or [])]}")
+                logger.info(f"Board: {[str(c) for c in self.state.board]}")
             else:
                 # Fold - winner is the non-folding player
                 winner_idx = 1 - self.state.folded
