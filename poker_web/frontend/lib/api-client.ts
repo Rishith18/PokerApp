@@ -4,7 +4,7 @@
  */
 
 import type { CardData } from "@/components/poker/playing-card"
-import type { BackendGameState } from "./types"
+import type { BackendGameState, MultiplayerBackendState } from "./types"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"
 
@@ -136,5 +136,45 @@ export async function getGameState(): Promise<BackendGameState> {
 export async function healthCheck(): Promise<{ status: string; message: string }> {
   return apiRequest<{ status: string; message: string }>("/api/health", {
     method: "GET",
+  })
+}
+
+// --- Multiplayer REST (Phase 1) ---
+
+export async function createMpGame(): Promise<{ game_token: string; seat: number }> {
+  return apiRequest<{ game_token: string; seat: number }>("/api/mp/game/new", {
+    method: "POST",
+  })
+}
+
+export async function joinMpGame(gameToken: string): Promise<{ seat: number; state: MultiplayerBackendState }> {
+  return apiRequest<{ seat: number; state: MultiplayerBackendState }>("/api/mp/game/join", {
+    method: "POST",
+    body: JSON.stringify({ game_token: gameToken }),
+  })
+}
+
+export async function getMpState(gameToken: string, seat: number): Promise<MultiplayerBackendState> {
+  const params = new URLSearchParams({ game_token: gameToken, seat: String(seat) })
+  return apiRequest<MultiplayerBackendState>(`/api/mp/game/state?${params}`, {
+    method: "GET",
+  })
+}
+
+export async function sendMpAction(
+  gameToken: string,
+  seat: number,
+  action: string,
+  amount?: number
+): Promise<MultiplayerBackendState> {
+  const body: { game_token: string; seat: number; action: string; amount?: number } = {
+    game_token: gameToken,
+    seat,
+    action,
+  }
+  if (amount !== undefined) body.amount = amount
+  return apiRequest<MultiplayerBackendState>("/api/mp/game/action", {
+    method: "POST",
+    body: JSON.stringify(body),
   })
 }

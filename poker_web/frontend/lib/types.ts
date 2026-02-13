@@ -35,6 +35,8 @@ export interface BackendGameState {
   call_amount?: number
   small_blind?: number
   big_blind?: number
+  player_hand_name?: string | null
+  bot_hand_name?: string | null
   all_in_runout?: Array<{
     street: string
     board: string[]
@@ -70,10 +72,44 @@ export interface ReactGameState {
     bot: number
   }
   legalActions: string[]
+  playerHandName?: string | null
+  opponentHandName?: string | null
   allInRunout?: Array<{
     street: string
     board: CardData[]
   }>
+}
+
+/**
+ * Multiplayer backend state (per-seat view from server).
+ * Uses player0/player1 instead of player/bot.
+ */
+export interface MultiplayerBackendState {
+  seat: number
+  waiting_for_opponent?: boolean
+  pot: number
+  stacks: { player0: number; player1: number }
+  round: string
+  board: string[]
+  player_cards: string[]
+  opponent_cards: string[] | null
+  legal_actions: string[]
+  last_action: {
+    actor: string
+    action: string
+    amount: number | null
+  } | null
+  current_player: string | null
+  can_act: boolean
+  hand_over: boolean
+  winner: string | null
+  wins: { player0: number; player1: number }
+  call_amount?: number
+  small_blind?: number
+  big_blind?: number
+  player_hand_name?: string | null
+  opponent_hand_name?: string | null
+  all_in_runout?: Array<{ street: string; board: string[] }>
 }
 
 /**

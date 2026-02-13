@@ -15,6 +15,8 @@ interface PlayerAreaProps {
   bet?: number
   isDealer?: boolean
   avatar?: string
+  handLabel?: string | null
+  isWinner?: boolean
 }
 
 export function PlayerArea({
@@ -26,15 +28,11 @@ export function PlayerArea({
   position,
   bet = 0,
   isDealer = false,
+  handLabel = null,
+  isWinner = false,
 }: PlayerAreaProps) {
-  return (
-    <div
-      className={cn(
-        "flex flex-col items-center gap-4",
-        position === "top" && "flex-col",
-        position === "bottom" && "flex-col-reverse"
-      )}
-    >
+  const content = (
+    <>
       {/* Cards */}
       <div className="flex gap-2">
         {cards.map((card, i) => (
@@ -47,6 +45,15 @@ export function PlayerArea({
           />
         ))}
       </div>
+
+      {/* Hand label (showdown) */}
+      {handLabel && (
+        <div className="px-3 py-1.5 rounded-lg bg-indigo-500/25 border border-indigo-400/40 shadow-[0_0_12px_rgba(99,102,241,0.3)]">
+          <span className="text-xs font-semibold text-indigo-200 uppercase tracking-wider">
+            {handLabel}
+          </span>
+        </div>
+      )}
 
       {/* Player Info */}
       <GlassPanel glow={isActive} className="px-5 py-2.5 flex items-center gap-4 min-w-[200px]">
@@ -91,6 +98,19 @@ export function PlayerArea({
           <span className="text-xs font-mono font-semibold text-foreground/80">{bet.toLocaleString()}</span>
         </GlassPanel>
       )}
+    </>
+  )
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center gap-4 rounded-2xl transition-all duration-300",
+        position === "top" && "flex-col",
+        position === "bottom" && "flex-col-reverse",
+        isWinner && "p-3 ring-2 ring-emerald-400/80 shadow-[0_0_24px_rgba(52,211,153,0.5),0_0_48px_rgba(52,211,153,0.25)]"
+      )}
+    >
+      {content}
     </div>
   )
 }

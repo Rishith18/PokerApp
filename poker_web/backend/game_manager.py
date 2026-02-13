@@ -14,6 +14,9 @@ from typing import Dict, List, Optional, Any, Tuple
 # Add parent directory to path to import poker_bot
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
+from treys import Card as TreysCard
+from treys import Evaluator as TreysEvaluator
+
 from poker_bot.bot.poker_bot import PokerBot
 from poker_bot.game_engine.game import PokerGame
 from poker_bot.game_engine.actions import Action, ActionType
@@ -21,6 +24,25 @@ from poker_bot.game_engine.state import GameState
 from poker_bot.utils.helpers import action_token_for_history, action_to_str
 
 logger = logging.getLogger(__name__)
+
+_treys_eval = TreysEvaluator()
+
+
+def _hand_name_for_cards(hole_cards: List, board: List) -> Optional[str]:
+    """Return human-readable hand name (e.g. 'Four of a Kind') for hole + board, or None if not enough cards."""
+    if not hole_cards or len(hole_cards) < 2 or not board or len(board) < 3:
+        return None
+    try:
+        board_strs = [card_to_string(c) for c in board]
+        hole_strs = [card_to_string(c) for c in hole_cards]
+        b = [TreysCard.new(s) for s in board_strs]
+        h = [TreysCard.new(s) for s in hole_strs]
+        rank = _treys_eval.evaluate(b, h)
+        rank_class = _treys_eval.get_rank_class(rank)
+        return _treys_eval.class_to_string(rank_class)
+    except Exception as e:
+        logger.warning("Hand name computation failed: %s", e)
+        return None
 
 
 def card_to_string(card) -> str:
@@ -158,6 +180,8 @@ class GameManager:
                 'call_amount': 0.0,
                 'small_blind': float(self.game.small_blind),
                 'big_blind': float(self.game.big_blind),
+                'player_hand_name': None,
+                'bot_hand_name': None,
             }
 
         # Get pot (includes current round bets)
@@ -224,6 +248,23 @@ class GameManager:
                 else:
                     winner = 'split'
 
+        # Hand names at showdown (for winner glow and hand labels)
+        player_hand_name = None
+        bot_hand_name = None
+        if self.state.is_terminal() and len(self.state.board) >= 3:
+            h0 = self.state.hole_cards[self.bot_player] or []
+            h1 = self.state.hole_cards[self.human_player] or []
+            if self.state.folded is not None:
+                if self.state.folded == self.bot_player:
+                    bot_hand_name = None
+                    player_hand_name = _hand_name_for_cards(h1, self.state.board)
+                else:
+                    player_hand_name = None
+                    bot_hand_name = _hand_name_for_cards(h0, self.state.board)
+            else:
+                player_hand_name = _hand_name_for_cards(h1, self.state.board)
+                bot_hand_name = _hand_name_for_cards(h0, self.state.board)
+
         return {
             'pot': float(pot),
             'stacks': stacks,
@@ -241,6 +282,8 @@ class GameManager:
             'can_act': can_act,
             'small_blind': float(self.state.small_blind),
             'big_blind': float(self.state.big_blind),
+            'player_hand_name': player_hand_name,
+            'bot_hand_name': bot_hand_name,
         }
 
     def process_player_action(self, action_str: str) -> Dict[str, Any]:
@@ -466,3 +509,255 @@ class GameManager:
             Current game state dictionary
         """
         return self.get_state_dict()
+
+
+def _parse_action_string_static(action_str: str) -> Optional[Action]:
+    """Parse action string to Action object (shared for bot and multiplayer)."""
+    action_str = action_str.strip().lower()
+    if action_str == 'fold':
+        return Action(ActionType.FOLD)
+    elif action_str == 'check':
+        return Action(ActionType.CHECK)
+    elif action_str == 'call':
+        return Action(ActionType.CALL)
+    elif action_str.startswith('raise'):
+        try:
+            if '(' in action_str:
+                amount_str = action_str.split('(')[1].split(')')[0]
+            else:
+                amount_str = action_str.split()[1]
+            amount = float(amount_str)
+            return Action(ActionType.RAISE, amount=amount)
+        except (IndexError, ValueError):
+            return None
+    return None
+
+
+class MultiplayerGameManager:
+    """Manages heads-up poker with two human players (no bot).
+
+    Used for multiplayer REST (Phase 1) and WebSocket matches (Phase 2).
+    State is keyed by seat (0 or 1); each client gets a view via get_state_dict_for_seat(seat).
+    """
+
+    DEFAULT_BET_SIZE_MULTS = (0.25, 0.5, 0.75, 1.0, 2.0, -1)
+
+    def __init__(self) -> None:
+        self.game = PokerGame(
+            small_blind=0.5,
+            big_blind=1.0,
+            starting_stack=100.0,
+            max_street="river",
+            bet_size_mults=self.DEFAULT_BET_SIZE_MULTS,
+        )
+        self.state: Optional[GameState] = None
+        self.button: int = 0
+        self.wins: List[int] = [0, 0]
+
+    def start_hand(self, button: int) -> None:
+        """Start a new hand. Call when both players have joined (or at match start)."""
+        self.button = button
+        self.state = self.game.start_hand(button)
+        logger.info(f"Multiplayer hand started, button={button}")
+
+    def get_state_dict_for_seat(self, seat: int) -> Dict[str, Any]:
+        """Return JSON-serializable state view for the given seat (0 or 1).
+
+        - player_cards = this seat's hole cards
+        - opponent_cards = other seat's hole cards only at showdown (hand_over)
+        - stacks/current_player use player0/player1
+        - can_act = (current_player == seat)
+        """
+        if self.state is None:
+            return {
+                'seat': seat,
+                'waiting_for_opponent': True,
+                'pot': 0.0,
+                'stacks': {'player0': 100.0, 'player1': 100.0},
+                'round': 'preflop',
+                'board': [],
+                'player_cards': [],
+                'opponent_cards': None,
+                'legal_actions': [],
+                'last_action': None,
+                'winner': None,
+                'hand_over': True,
+                'wins': {'player0': 0, 'player1': 0},
+                'current_player': None,
+                'can_act': False,
+                'call_amount': 0.0,
+                'small_blind': 0.5,
+                'big_blind': 1.0,
+                'player_hand_name': None,
+                'opponent_hand_name': None,
+            }
+
+        pot = self.state.pot + sum(self.state.round_bets)
+        stacks = {
+            'player0': float(self.state.stacks[0]),
+            'player1': float(self.state.stacks[1]),
+        }
+        board = [card_to_string(c) for c in self.state.board]
+        player_cards = [card_to_string(c) for c in (self.state.hole_cards[seat] or [])]
+        opponent_cards = None
+        if self.state.is_showdown() or self.state.is_terminal():
+            opponent_cards = [card_to_string(c) for c in (self.state.hole_cards[1 - seat] or [])]
+
+        legal_actions = []
+        call_amount = 0.0
+        if not self.state.is_terminal():
+            for action in self.state.legal_actions():
+                legal_actions.append(action_to_str(action))
+            call_amount = float(self.state.call_amount)
+
+        current_player = None
+        can_act = False
+        if not self.state.is_terminal():
+            current_player = f"player{self.state.current_player}"
+            can_act = self.state.current_player == seat
+
+        last_action = None
+        if self.state.round_history:
+            last_act = self.state.round_history[-1]
+            actor = f"player{last_act[0]}"
+            action_str = action_to_str(last_act[1])
+            amount = last_act[1].amount if last_act[1].amount is not None else None
+            last_action = {'actor': actor, 'action': action_str, 'amount': amount}
+
+        winner = None
+        if self.state.is_terminal():
+            if self.state.folded is not None:
+                winner = f"player{1 - self.state.folded}"
+            elif self.state.winner is not None:
+                if self.state.winner == 0 or self.state.winner == 1:
+                    winner = f"player{self.state.winner}"
+                else:
+                    winner = "split"
+
+        # Hand names at showdown (folder gets null)
+        player_hand_name = None
+        opponent_hand_name = None
+        if self.state.is_terminal() and len(self.state.board) >= 3:
+            h0 = self.state.hole_cards[0] or []
+            h1 = self.state.hole_cards[1] or []
+            folded = self.state.folded
+            if folded is not None:
+                if seat == 0:
+                    player_hand_name = _hand_name_for_cards(h0, self.state.board) if folded != 0 else None
+                    opponent_hand_name = _hand_name_for_cards(h1, self.state.board) if folded != 1 else None
+                else:
+                    player_hand_name = _hand_name_for_cards(h1, self.state.board) if folded != 1 else None
+                    opponent_hand_name = _hand_name_for_cards(h0, self.state.board) if folded != 0 else None
+            else:
+                player_hand_name = _hand_name_for_cards(self.state.hole_cards[seat] or [], self.state.board)
+                opponent_hand_name = _hand_name_for_cards(self.state.hole_cards[1 - seat] or [], self.state.board)
+
+        wins_dict = {'player0': self.wins[0], 'player1': self.wins[1]}
+
+        result = {
+            'seat': seat,
+            'pot': float(pot),
+            'stacks': stacks,
+            'round': self.state.round_name,
+            'board': board,
+            'player_cards': player_cards,
+            'opponent_cards': opponent_cards,
+            'legal_actions': legal_actions,
+            'last_action': last_action,
+            'current_player': current_player,
+            'can_act': can_act,
+            'call_amount': call_amount,
+            'hand_over': self.state.is_terminal(),
+            'winner': winner,
+            'wins': wins_dict,
+            'small_blind': float(self.state.small_blind),
+            'big_blind': float(self.state.big_blind),
+            'player_hand_name': player_hand_name,
+            'opponent_hand_name': opponent_hand_name,
+        }
+        return result
+
+    def process_action(self, seat: int, action_str: str) -> Dict[str, Any]:
+        """Validate, apply action, handle hand end / all-in / next hand. Return state view for seat."""
+        if self.state is None or self.state.is_terminal():
+            return self.get_state_dict_for_seat(seat)
+
+        action = _parse_action_string_static(action_str)
+        if action is None:
+            logger.error(f"Invalid action string: {action_str}")
+            return self.get_state_dict_for_seat(seat)
+
+        if self.state.current_player != seat:
+            logger.error(f"Not seat {seat}'s turn (current={self.state.current_player})")
+            return self.get_state_dict_for_seat(seat)
+
+        legal = self.state.legal_actions()
+        if action not in legal:
+            logger.error(f"Illegal action {action} (legal: {legal})")
+            return self.get_state_dict_for_seat(seat)
+
+        self.state = self.game.step(self.state, action)
+
+        if self.state.is_terminal():
+            return self._mp_handle_hand_end(seat)
+
+        if self._mp_both_all_in():
+            return self._mp_handle_all_in_showdown(seat)
+
+        return self.get_state_dict_for_seat(seat)
+
+    def _mp_both_all_in(self) -> bool:
+        if self.state is None:
+            return False
+        return self.state.stacks[0] <= 0.01 and self.state.stacks[1] <= 0.01
+
+    def _mp_handle_all_in_showdown(self, for_seat: int) -> Dict[str, Any]:
+        """Deal remaining streets and resolve showdown when both all-in."""
+        runout_boards = []
+        while self.state.round_name not in ("showdown", "terminal"):
+            if self.state.round_name == "preflop":
+                self.state = self.state._advance_street(self.state)
+                if len(self.state.board) == 0:
+                    flop_cards = self.game._deck.deal(3)
+                    self.state = self.state.with_board(flop_cards)
+                    runout_boards.append({'street': 'flop', 'board': [card_to_string(c) for c in self.state.board]})
+            elif self.state.round_name == "flop":
+                self.state = self.state._advance_street(self.state)
+                if len(self.state.board) == 3:
+                    turn_card = self.game._deck.deal(1)
+                    self.state = self.state.with_board(self.state.board + turn_card)
+                    runout_boards.append({'street': 'turn', 'board': [card_to_string(c) for c in self.state.board]})
+            elif self.state.round_name == "turn":
+                self.state = self.state._advance_street(self.state)
+                if len(self.state.board) == 4:
+                    river_card = self.game._deck.deal(1)
+                    self.state = self.state.with_board(self.state.board + river_card)
+                    runout_boards.append({'street': 'river', 'board': [card_to_string(c) for c in self.state.board]})
+            elif self.state.round_name == "river":
+                self.state = self.state._advance_street(self.state)
+                break
+
+        self.state = self.game.resolve_showdown(self.state)
+        result = self._mp_handle_hand_end(for_seat)
+        if runout_boards:
+            result['all_in_runout'] = runout_boards
+        return result
+
+    def _mp_handle_hand_end(self, for_seat: int) -> Dict[str, Any]:
+        """Update wins and button; return showdown state. Do NOT start next hand yet.
+        Caller (socket layer) should emit this state, wait SHOWDOWN_DELAY_MS, then call
+        start_next_hand() and emit the new state."""
+        if self.state.winner is not None:
+            if self.state.folded is None:
+                self.wins[self.state.winner] += 1
+            else:
+                winner_idx = 1 - self.state.folded
+                self.wins[winner_idx] += 1
+        self.button = 1 - self.button
+        return self.get_state_dict_for_seat(for_seat)
+
+    def start_next_hand(self) -> None:
+        """Start the next hand (call after showdown delay). No-op if state is not terminal."""
+        if self.state is None or not self.state.is_terminal():
+            return
+        self.start_hand(self.button)

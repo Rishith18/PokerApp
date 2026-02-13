@@ -1,7 +1,7 @@
 """Flask application for poker web interface.
 
 This is the main entry point for the poker web server.
-It serves the frontend static files and provides REST API endpoints.
+It serves the frontend static files, REST API, and WebSocket (SocketIO) for multiplayer.
 """
 
 import os
@@ -9,14 +9,26 @@ import sys
 import logging
 from pathlib import Path
 
-from flask import Flask, send_from_directory, send_file
+# Eventlet must be monkey-patched before importing Flask/SocketIO to avoid
+# "write() before start_response" when handling WebSocket upgrades.
+_async_mode = "threading"
+try:
+    import eventlet
+    eventlet.monkey_patch()
+    _async_mode = "eventlet"
+except ImportError:
+    pass  # fall back to threading if eventlet not installed
+
+from flask import Flask
 from flask_cors import CORS
+from flask_socketio import SocketIO
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from poker_web.backend.routes import init_routes
+from poker_web.backend.socket_events import register_socket_events
 
 # Configure logging
 logging.basicConfig(
@@ -27,7 +39,9 @@ logger = logging.getLogger(__name__)
 
 # Create Flask app
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app, origins='*', supports_credentials=True)
+# Prefer eventlet for WebSocket support; avoids Werkzeug "write() before start_response" on upgrade
+socketio = SocketIO(app, cors_allowed_origins='*', async_mode=_async_mode)
 
 # Configuration
 app.config['SECRET_KEY'] = 'poker-dev-secret-key-change-in-production'
@@ -37,7 +51,6 @@ app.config['JSON_SORT_KEYS'] = False
 STRATEGY_PATH = project_root / 'strategy_ext.pkl'
 
 
-# Health check endpoint (root)
 @app.route('/')
 def index():
     """API health check endpoint."""
@@ -49,31 +62,23 @@ def index():
 
 
 def main():
-    """Run the Flask development server."""
-    # Check if strategy file exists
+    """Run the Flask server with SocketIO."""
     if not STRATEGY_PATH.exists():
         logger.error(f"Strategy file not found: {STRATEGY_PATH}")
         logger.error("Please ensure strategy_ext.pkl exists in the project root.")
         sys.exit(1)
 
-    # Initialize routes with game manager
     init_routes(app, str(STRATEGY_PATH))
+    register_socket_events(socketio)
 
     logger.info("=" * 60)
-    logger.info("Starting Poker API Server")
+    logger.info("Starting Poker API Server (Flask + SocketIO)")
     logger.info(f"Strategy file: {STRATEGY_PATH}")
     logger.info("=" * 60)
-    logger.info("\nAPI Server running at: http://localhost:8080")
-    logger.info("Frontend (Next.js): Start with 'cd poker_web/frontend && pnpm dev'")
-    logger.info("Then open: http://localhost:3000\n")
+    logger.info("\nAPI + WebSocket at: http://localhost:8080")
+    logger.info("Frontend: cd poker_web/frontend && pnpm dev -> http://localhost:3000\n")
 
-    # Run Flask development server
-    app.run(
-        host='0.0.0.0',
-        port=8080,
-        debug=True,
-        use_reloader=True
-    )
+    socketio.run(app, host='0.0.0.0', port=8080, debug=True, allow_unsafe_werkzeug=True)
 
 
 if __name__ == '__main__':

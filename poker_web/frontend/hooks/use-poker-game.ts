@@ -5,7 +5,7 @@
 
 import { useState, useCallback, useEffect } from "react"
 import { startNewHand as apiStartNewHand, sendPlayerAction, parseBackendCard } from "@/lib/api-client"
-import type { BackendGameState, ReactGameState, ParsedLegalActions } from "@/lib/types"
+import type { BackendGameState, ReactGameState, ParsedLegalActions, MultiplayerBackendState } from "@/lib/types"
 import type { CardData } from "@/components/poker/playing-card"
 
 /**
@@ -87,6 +87,8 @@ function transformBackendToReact(backend: BackendGameState): ReactGameState {
     winner: backend.winner,
     wins: backend.wins,
     legalActions: backend.legal_actions,
+    playerHandName: backend.player_hand_name ?? null,
+    opponentHandName: backend.bot_hand_name ?? null,
     allInRunout,
   }
 }
@@ -97,7 +99,6 @@ function transformBackendToReact(backend: BackendGameState): ReactGameState {
 function parseBetFromActions(legalActions: string[]): number {
   for (const action of legalActions) {
     if (action.startsWith("Call")) {
-      // Extract number from "Call" or "Raise(amount)"
       const match = action.match(/\d+\.?\d*/)
       if (match) {
         return parseFloat(match[0])
@@ -105,6 +106,100 @@ function parseBetFromActions(legalActions: string[]): number {
     }
   }
   return 0
+}
+
+/**
+ * Transform multiplayer backend state (per-seat view) to ReactGameState.
+ * "player" in ReactGameState = this seat; "bot" = opponent (so existing table UI works).
+ */
+export function transformMultiplayerToReact(
+  backend: MultiplayerBackendState,
+  mySeat: 0 | 1
+): ReactGameState {
+  if (backend.waiting_for_opponent) {
+    return {
+      phase: "preflop",
+      pot: 0,
+      communityCards: Array(5).fill(null),
+      playerCards: [],
+      opponentCards: [null, null],
+      playerChips: 100,
+      opponentChips: 100,
+      currentBet: 0,
+      playerBet: 0,
+      opponentBet: 0,
+      isPlayerTurn: false,
+      isPlayerDealer: mySeat === 0,
+      callAmount: 0,
+      blinds: { small: 0.5, big: 1 },
+      message: "Waiting for opponent to join...",
+      handOver: true,
+      winner: null,
+      wins: { player: 0, bot: 0 },
+      legalActions: [],
+    }
+  }
+
+  const playerCards = backend.player_cards.map(parseBackendCard).filter((c): c is CardData => c !== null)
+  const opponentCards: (CardData | null)[] = backend.opponent_cards
+    ? backend.opponent_cards.map(parseBackendCard)
+    : [null, null]
+  const communityCards: (CardData | null)[] = Array(5)
+    .fill(null)
+    .map((_, i) => (backend.board[i] ? parseBackendCard(backend.board[i]) : null))
+
+  const currentBet = parseBetFromActions(backend.legal_actions)
+  let phase: ReactGameState["phase"] = backend.round as ReactGameState["phase"]
+  if (backend.hand_over || backend.winner !== null) phase = "showdown"
+
+  const myKey = `player${mySeat}` as const
+  const oppKey = `player${1 - mySeat}` as const
+  let message = "Your turn"
+  if (!backend.can_act) message = "Opponent's turn"
+  if (backend.hand_over) {
+    if (backend.winner === myKey) message = `You won!`
+    else if (backend.winner === oppKey) message = `Opponent won`
+    else message = "Split pot"
+  }
+  if (backend.last_action) {
+    const isMe = backend.last_action.actor === myKey
+    const who = isMe ? "You" : "Opponent"
+    const { action, amount } = backend.last_action
+    message = amount != null ? `${who}: ${action} ${amount}` : `${who}: ${action}`
+  }
+
+  const allInRunout = backend.all_in_runout?.map(streetData => ({
+    street: streetData.street,
+    board: streetData.board.map(parseBackendCard).filter((c): c is CardData => c !== null),
+  }))
+
+  return {
+    phase,
+    pot: backend.pot,
+    communityCards,
+    playerCards,
+    opponentCards,
+    playerChips: backend.stacks[myKey],
+    opponentChips: backend.stacks[oppKey],
+    currentBet,
+    playerBet: 0,
+    opponentBet: 0,
+    isPlayerTurn: backend.can_act,
+    isPlayerDealer: mySeat === 0,
+    callAmount: backend.call_amount ?? 0,
+    blinds: {
+      small: backend.small_blind ?? 0.5,
+      big: backend.big_blind ?? 1,
+    },
+    message,
+    handOver: backend.hand_over,
+    winner: backend.winner === myKey ? "player" : backend.winner === oppKey ? "bot" : backend.winner === "split" ? "split" : null,
+    wins: { player: backend.wins[myKey], bot: backend.wins[oppKey] },
+    legalActions: backend.legal_actions,
+    playerHandName: backend.player_hand_name ?? null,
+    opponentHandName: backend.opponent_hand_name ?? null,
+    allInRunout,
+  }
 }
 
 /**

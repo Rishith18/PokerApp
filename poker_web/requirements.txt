@@ -1,6 +1,10 @@
 # Web framework dependencies
 flask>=2.3.0
 flask-cors>=4.0.0
+flask-socketio>=5.3.0
+python-socketio>=5.10.0
+python-engineio>=4.8.0
+eventlet>=0.33.0
 
 # Poker bot dependencies (required by backend)
 numpy>=1.24.0

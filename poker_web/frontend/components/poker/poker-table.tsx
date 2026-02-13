@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
 import { GlassPanel } from "./glass-panel"
 import { PlayingCard } from "./playing-card"
@@ -8,8 +9,31 @@ import { ActionBar } from "./action-bar"
 import { Coins, RotateCcw } from "lucide-react"
 import { usePokerGame, parseLegalActions } from "@/hooks/use-poker-game"
 
+const SHOWDOWN_DELAY_MS = 3000
+
 export function PokerTable() {
   const { gameState, isLoading, error, startNewHand, handlePlayerAction } = usePokerGame()
+  const [showdownCountdown, setShowdownCountdown] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!gameState?.handOver) {
+      setShowdownCountdown(null)
+      return
+    }
+    const seconds = Math.ceil(SHOWDOWN_DELAY_MS / 1000)
+    setShowdownCountdown(seconds)
+    const id = setInterval(() => {
+      setShowdownCountdown((prev) => {
+        if (prev == null || prev <= 1) {
+          clearInterval(id)
+          startNewHand()
+          return null
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(id)
+  }, [gameState?.handOver, startNewHand])
 
   if (!gameState) {
     return (
@@ -114,6 +138,8 @@ export function PokerTable() {
             position="top"
             bet={gameState.opponentBet}
             isDealer={!gameState.isPlayerDealer}
+            handLabel={gameState.opponentHandName ?? undefined}
+            isWinner={gameState.winner === "bot" || gameState.winner === "split"}
           />
         </div>
 
@@ -193,6 +219,8 @@ export function PokerTable() {
             position="bottom"
             bet={gameState.playerBet}
             isDealer={gameState.isPlayerDealer}
+            handLabel={gameState.playerHandName ?? undefined}
+            isWinner={gameState.winner === "player" || gameState.winner === "split"}
           />
         </div>
       </div>
@@ -212,9 +240,12 @@ export function PokerTable() {
         </div>
       )}
 
-      {/* Showdown: New Hand button */}
+      {/* Showdown: countdown and optional early Deal New Hand */}
       {gameState.handOver && (
-        <div className="relative z-10">
+        <div className="relative z-10 flex flex-col items-center gap-2">
+          {showdownCountdown != null && showdownCountdown > 0 && (
+            <p className="text-xs text-white/60">Next hand in {showdownCountdown}…</p>
+          )}
           <button
             type="button"
             onClick={startNewHand}

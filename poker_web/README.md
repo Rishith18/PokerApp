@@ -90,9 +90,10 @@ poker_web/
 2. **Access the Interface**
 
    Open your web browser and navigate to:
-   ```
-   http://localhost:8080
-   ```
+   - Single-player (vs bot): `http://localhost:3000`
+   - Multiplayer (vs human): `http://localhost:3000/multiplayer`
+
+   The Next.js frontend runs on port 3000; the Flask + SocketIO backend runs on port 8080.
 
 3. **Start Playing!**
 
@@ -236,6 +237,30 @@ The bot's strategy is loaded from the pickle file. To change bot behavior:
 2. Retrain the bot
 3. Replace `strategy_ext.pkl`
 4. Restart the server
+
+## Playing from Another Device (e.g. iPad)
+
+To play multiplayer from a second device on the same Wi‑Fi (e.g. your iPad):
+
+1. **Find your computer’s IP address** (the one running the servers):
+   - macOS: Terminal → `ipconfig getifaddr en0` (Wi‑Fi) or check System Settings → Network.
+   - Example: `172.26.42.149`
+
+2. **Start the backend** (from `poker_web`): `python backend/app.py`  
+   It already listens on `0.0.0.0:8080`, so it’s reachable from other devices.
+
+3. **Start the frontend so it uses your IP for API/WebSocket** (from `poker_web/frontend`):
+   ```bash
+   NEXT_PUBLIC_API_URL=http://YOUR_IP:8080 NEXT_PUBLIC_WS_URL=http://YOUR_IP:8080 npm run dev:lan
+   ```
+   Replace `YOUR_IP` with your computer’s IP (e.g. `172.26.42.149`).  
+   `dev:lan` makes the dev server listen on all interfaces so the iPad can load the site.
+
+4. **On your computer:** Open `http://localhost:3000/multiplayer` (or `http://YOUR_IP:3000/multiplayer`), click **Create game**, and copy the room code.
+
+5. **On your iPad:** Open **`http://YOUR_IP:3000/multiplayer`** in Safari, enter the room code, and click **Join**.
+
+If you see “Connecting to server…” or “websocket error” on the iPad, the frontend was started without `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_WS_URL`. Restart the frontend with those env vars set to `http://YOUR_IP:8080` and use `npm run dev:lan`.
 
 ## Troubleshooting
 
