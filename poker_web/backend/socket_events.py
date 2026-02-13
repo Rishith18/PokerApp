@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from flask import request as flask_request
 from flask_socketio import emit
 
 from poker_web.backend.game_manager import _parse_action_string_static
@@ -18,6 +19,8 @@ from poker_web.backend.rooms import (
     matches,
     socket_to_room,
 )
+from poker_web.backend.sockets.auth import authenticate_socket, get_player_for_socket, clear_socket
+from poker_web.backend.services.match_stats import update_player_stats_after_match
 
 logger = logging.getLogger(__name__)
 
@@ -27,22 +30,43 @@ SHOWDOWN_DELAY_SECONDS = 3
 def register_socket_events(socketio):
     """Register all socket event handlers."""
 
+    @socketio.on("connect")
+    def on_connect(auth=None):
+        """Require JWT on connect. Reject connection if token missing or invalid."""
+        token = None
+        if auth and isinstance(auth, dict):
+            token = auth.get("token")
+        if not token:
+            token = flask_request.args.get("token")
+        if not token:
+            logger.warning("Socket connect rejected: no token")
+            return False
+        if not authenticate_socket(flask_request.sid, token):
+            logger.warning("Socket connect rejected: invalid token")
+            return False
+
     @socketio.on("create_room")
     def on_create_room(_data=None):
-        from flask import request as flask_request
-        creator_sid = flask_request.sid
-        room_code = create_room(creator_sid)
+        sid = flask_request.sid
+        player = get_player_for_socket(sid)
+        if not player:
+            emit("auth_error", {"message": "Not authenticated"})
+            return
+        room_code = create_room(sid, player.get("player_id"))
         emit("room_created", {"room_code": room_code})
 
     @socketio.on("join_room")
     def on_join_room(data):
-        from flask import request as flask_request
         sid = flask_request.sid
+        player = get_player_for_socket(sid)
+        if not player:
+            emit("auth_error", {"message": "Not authenticated"})
+            return
         room_code = (data or {}).get("room_code", "").strip().upper()
         if not room_code:
             emit("room_error", {"message": "room_code required"})
             return
-        result = join_room(room_code, sid)
+        result = join_room(room_code, sid, player.get("player_id"))
         if result is None:
             emit("room_error", {"message": "Room full or invalid code"})
             return
@@ -67,8 +91,10 @@ def register_socket_events(socketio):
 
     @socketio.on("player_action")
     def on_player_action(data):
-        from flask import request as flask_request
         sid = flask_request.sid
+        if not get_player_for_socket(sid):
+            emit("auth_error", {"message": "Not authenticated"})
+            return
         data = data or {}
         action = (data.get("action") or "").strip().lower()
         amount = data.get("amount")
@@ -128,6 +154,7 @@ def register_socket_events(socketio):
                     return
                 mgr = sess.manager
                 mgr.start_next_hand()
+                sess.hands_played += 1
                 s0 = mgr.get_state_dict_for_seat(0)
                 s1 = mgr.get_state_dict_for_seat(1)
                 socketio.emit("game_state_update", s0, room=sockets[0])
@@ -140,8 +167,10 @@ def register_socket_events(socketio):
     @socketio.on("reconnect_sync")
     def on_reconnect_sync(data):
         """Client reconnected; send full state if still in match."""
-        from flask import request as flask_request
         sid = flask_request.sid
+        if not get_player_for_socket(sid):
+            emit("auth_error", {"message": "Not authenticated"})
+            return
         room_code = (data or {}).get("room_code", "").strip().upper()
         if not room_code or room_code not in matches:
             emit("game_state_update", {"waiting_for_opponent": True, "seat": None})
@@ -155,16 +184,42 @@ def register_socket_events(socketio):
             state = session.manager.get_state_dict_for_seat(seat)
             emit("game_state_update", state)
 
+    def _record_match_stats(room_code: str, other_sid: str):
+        """Record match stats before room is removed (winner = remaining player)."""
+        if room_code not in matches:
+            return
+        session = matches[room_code]
+        if not session.player1_id or not session.player2_id:
+            return
+        winner_seat = session.seat_for(other_sid)
+        bb_result_player1 = 0.0
+        if session.manager and session.manager.state:
+            stacks = session.manager.state.stacks
+            # Starting stack 100, big blind 1.0
+            bb_result_player1 = (float(stacks[0]) - 100.0) / 1.0
+        update_player_stats_after_match(
+            session.player1_id,
+            session.player2_id,
+            winner_seat,
+            session.hands_played,
+            bb_result_player1,
+        )
+
     @socketio.on("disconnect")
     def on_disconnect():
-        from flask import request as flask_request
         sid = flask_request.sid
+        clear_socket(sid)
         match_session = get_match_for_socket(sid)
         if match_session:
             other = match_session.other_socket(sid)
             socket_to_room.pop(sid, None)
             if other:
-                schedule_match_end(match_session.room_code, emit, other)
+                schedule_match_end(
+                    match_session.room_code,
+                    emit,
+                    other,
+                    on_before_remove=lambda rc=match_session.room_code, o=other: _record_match_stats(rc, o),
+                )
             else:
                 remove_room_and_match(match_session.room_code)
             return

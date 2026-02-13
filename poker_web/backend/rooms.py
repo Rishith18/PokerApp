@@ -30,7 +30,9 @@ class Room:
 
     room_code: str
     creator_sid: str
+    creator_player_id: Optional[str] = None  # user_id for match stats
     joiner_sid: Optional[str] = None
+    joiner_player_id: Optional[str] = None
 
     @property
     def is_full(self) -> bool:
@@ -45,6 +47,9 @@ class MatchSession:
     sockets: list = field(default_factory=list)  # [sid0, sid1] by seat
     seat_for_socket: Dict[str, int] = field(default_factory=dict)  # sid -> 0 | 1
     manager: Optional[MultiplayerGameManager] = None
+    player1_id: Optional[str] = None  # user_id (seat 0)
+    player2_id: Optional[str] = None  # user_id (seat 1)
+    hands_played: int = 0
 
     def seat_for(self, sid: str) -> Optional[int]:
         return self.seat_for_socket.get(sid)
@@ -64,18 +69,18 @@ matches: Dict[str, MatchSession] = {}  # room_code -> match
 socket_to_room: Dict[str, str] = {}  # sid -> room_code (for lookup)
 
 
-def create_room(creator_sid: str) -> str:
+def create_room(creator_sid: str, creator_player_id: Optional[str] = None) -> str:
     """Create a new room; creator gets seat 0. Returns room_code."""
     code = _room_code()
     while code in rooms:
         code = _room_code()
-    rooms[code] = Room(room_code=code, creator_sid=creator_sid)
+    rooms[code] = Room(room_code=code, creator_sid=creator_sid, creator_player_id=creator_player_id)
     socket_to_room[creator_sid] = code
     logger.info(f"Room created: {code} by {creator_sid[:8]}...")
     return code
 
 
-def join_room(room_code: str, joiner_sid: str) -> Optional[str]:
+def join_room(room_code: str, joiner_sid: str, joiner_player_id: Optional[str] = None) -> Optional[str]:
     """
     Join an existing room. Joiner gets seat 1.
     Returns None if room full or invalid; else returns room_code.
@@ -87,6 +92,7 @@ def join_room(room_code: str, joiner_sid: str) -> Optional[str]:
     if room.is_full:
         return None
     room.joiner_sid = joiner_sid
+    room.joiner_player_id = joiner_player_id
     socket_to_room[joiner_sid] = code
     logger.info(f"Player joined room {code}")
     return code
@@ -109,6 +115,9 @@ def start_match(room_code: str) -> Optional[MatchSession]:
         sockets=[room.creator_sid, room.joiner_sid],
         seat_for_socket={room.creator_sid: 0, room.joiner_sid: 1},
         manager=manager,
+        player1_id=room.creator_player_id,
+        player2_id=room.joiner_player_id,
+        hands_played=1,  # first hand is started
     )
     matches[room_code] = session
     return session
@@ -144,8 +153,15 @@ def remove_room_and_match(room_code: str) -> None:
     logger.info(f"Removed room/match: {room_code}")
 
 
-def schedule_match_end(room_code: str, emit_fn: Callable, other_sid: str) -> None:
-    """Schedule match end after grace period; emit opponent_disconnected to other_sid now."""
+def schedule_match_end(
+    room_code: str,
+    emit_fn: Callable,
+    other_sid: str,
+    on_before_remove: Optional[Callable[[], None]] = None,
+) -> None:
+    """Schedule match end after grace period; emit opponent_disconnected to other_sid now.
+    If on_before_remove is provided, it is called before remove_room_and_match (e.g. to record stats).
+    """
     if room_code not in matches:
         return
     session = matches[room_code]
@@ -161,6 +177,11 @@ def schedule_match_end(room_code: str, emit_fn: Callable, other_sid: str) -> Non
             emit_fn("match_end", {"reason": "opponent_left", "winner": session.seat_for(other_sid)}, room=other_sid)
         except Exception as e:
             logger.warning("emit match_end failed: %s", e)
+        if on_before_remove:
+            try:
+                on_before_remove()
+            except Exception as e:
+                logger.exception("on_before_remove failed: %s", e)
         remove_room_and_match(room_code)
 
     t = threading.Timer(DISCONNECT_GRACE_SECONDS, on_timer)

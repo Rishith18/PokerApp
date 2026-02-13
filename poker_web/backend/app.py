@@ -21,14 +21,13 @@ except ImportError:
 
 from flask import Flask
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
-
-from poker_web.backend.routes import init_routes
-from poker_web.backend.socket_events import register_socket_events
 
 # Configure logging
 logging.basicConfig(
@@ -37,11 +36,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create Flask app
+# Create Flask app and limiter first (auth routes import limiter)
 app = Flask(__name__)
 CORS(app, origins='*', supports_credentials=True)
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
 # Prefer eventlet for WebSocket support; avoids Werkzeug "write() before start_response" on upgrade
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode=_async_mode)
+
+from poker_web.backend.routes import init_routes
+from poker_web.backend.socket_events import register_socket_events
+from poker_web.backend.auth.routes import auth_bp
+from poker_web.backend.player.routes import api_player
 
 # Configuration
 app.config['SECRET_KEY'] = 'poker-dev-secret-key-change-in-production'
@@ -68,6 +78,8 @@ def main():
         logger.error("Please ensure strategy_ext.pkl exists in the project root.")
         sys.exit(1)
 
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(api_player)
     init_routes(app, str(STRATEGY_PATH))
     register_socket_events(socketio)
 

@@ -8,6 +8,27 @@ import type { ReactGameState } from "@/lib/types"
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"
 
+export const AUTH_TOKEN_KEY = "poker_jwt"
+
+export function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setStoredToken(token: string | null): void {
+  if (typeof window === "undefined") return
+  try {
+    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token)
+    else localStorage.removeItem(AUTH_TOKEN_KEY)
+  } catch {
+    // ignore
+  }
+}
+
 export type MpSocketState = {
   connected: boolean
   roomCode: string | null
@@ -37,7 +58,15 @@ export function useMpSocket() {
   const SHOWDOWN_DELAY_MS = 3000
 
   useEffect(() => {
-    const s = io(WS_URL, { transports: ["websocket", "polling"], autoConnect: true })
+    const token = getStoredToken()
+    const s = io(WS_URL, {
+      transports: ["websocket", "polling"],
+      autoConnect: true,
+      auth: token ? { token } : {},
+    })
+    if (!token) {
+      setError("Please log in to play multiplayer")
+    }
     s.on("connect", () => {
       setConnected(true)
       setError(null)
@@ -50,6 +79,9 @@ export function useMpSocket() {
     })
     s.on("connect_error", (err) => {
       setError(err.message || "Connection failed")
+    })
+    s.on("auth_error", (data: { message?: string }) => {
+      setError(data?.message || "Authentication required. Please log in.")
     })
     s.on("room_created", (data: { room_code: string }) => {
       setRoomCode(data.room_code)
