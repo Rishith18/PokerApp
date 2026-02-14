@@ -2,8 +2,9 @@
 
 import logging
 from flask import Blueprint, jsonify, request
+import psycopg2
 
-from poker_web.backend.app import limiter
+from poker_web.backend.limiter import limiter
 from poker_web.backend.auth.validation import validate_register
 from poker_web.backend.auth.services import (
     create_user_and_player,
@@ -56,7 +57,13 @@ def register():
     if not ok:
         return jsonify({"error": err}), 400
 
-    user_row, err = create_user_and_player(email, username, password)
+    try:
+        user_row, err = create_user_and_player(email, username, password)
+    except (psycopg2.OperationalError, RuntimeError) as e:
+        logger.exception("Register: database error")
+        msg = "Database unavailable. Check your internet connection and DATABASE_URL, then try again."
+        return jsonify({"error": msg}), 503
+
     if err:
         status = 409 if "already in use" in err else 400
         return jsonify({"error": err}), status
@@ -89,14 +96,23 @@ def login():
     if not email or not password:
         return jsonify({"error": "Email and password required"}), 400
 
-    user = get_user_by_email(email)
+    try:
+        user = get_user_by_email(email)
+    except (psycopg2.OperationalError, RuntimeError) as e:
+        logger.exception("Login: database error")
+        return jsonify({"error": "Database unavailable. Check your internet connection and DATABASE_URL, then try again."}), 503
+
     if not user:
         return jsonify({"error": "Invalid email or password"}), 401
 
     if not check_password(password, user["password_hash"]):
         return jsonify({"error": "Invalid email or password"}), 401
 
-    player = get_player_by_user_id(str(user["id"]))
+    try:
+        player = get_player_by_user_id(str(user["id"]))
+    except (psycopg2.OperationalError, RuntimeError) as e:
+        logger.exception("Login: database error")
+        return jsonify({"error": "Database unavailable. Check your internet connection and DATABASE_URL, then try again."}), 503
     if not player:
         return jsonify({"error": "Player record not found"}), 500
 

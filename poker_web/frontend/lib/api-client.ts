@@ -178,3 +178,47 @@ export async function sendMpAction(
     body: JSON.stringify(body),
   })
 }
+
+// --- Auth ---
+
+export type AuthResponse = {
+  token: string
+  user: { id: string; email: string; username: string }
+  player: { rating: number; games_played: number; wins: number; losses: number }
+}
+
+export async function login(email: string, password: string): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.trim(), password }),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const message = typeof data?.error === "string" ? data.error : "Login failed"
+    throw new Error(message)
+  }
+  return data as AuthResponse
+}
+
+export async function register(
+  email: string,
+  username: string,
+  password: string
+): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: email.trim(),
+      username: username.trim(),
+      password,
+    }),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const message = typeof data?.error === "string" ? data.error : "Registration failed"
+    throw new Error(message)
+  }
+  return data as AuthResponse
+}

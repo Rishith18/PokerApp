@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import { useMpSocket } from "@/hooks/use-mp-socket"
 import { PokerTableMultiplayer } from "@/components/poker/poker-table-multiplayer"
 import { GlassPanel } from "@/components/poker/glass-panel"
@@ -71,6 +72,14 @@ export default function MultiplayerPage() {
         {error && (
           <GlassPanel className="px-4 py-3 bg-red-500/20 border-red-500/40">
             <p className="text-red-200 text-sm">{error}</p>
+            {(error.includes("log in") || error.includes("Authentication")) && (
+              <Link
+                href="/login"
+                className="mt-2 inline-block text-sm font-medium text-[#0A84FF] hover:underline"
+              >
+                Log in to play
+              </Link>
+            )}
           </GlassPanel>
         )}
 

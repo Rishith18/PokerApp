@@ -7,6 +7,7 @@ python-engineio>=4.8.0
 eventlet>=0.33.0
 
 # Auth and database (MVP)
+python-dotenv>=1.0.0
 psycopg2-binary>=2.9.0
 PyJWT>=2.8.0
 bcrypt>=4.0.0

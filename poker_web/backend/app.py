@@ -9,6 +9,16 @@ import sys
 import logging
 from pathlib import Path
 
+# Load .env from backend directory so DATABASE_URL and JWT_SECRET are set
+_backend_dir = Path(__file__).resolve().parent
+_load_env = _backend_dir / ".env"
+if _load_env.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_load_env)
+    except ImportError:
+        pass  # python-dotenv not installed; rely on env vars from shell
+
 # Eventlet must be monkey-patched before importing Flask/SocketIO to avoid
 # "write() before start_response" when handling WebSocket upgrades.
 _async_mode = "threading"
@@ -21,13 +31,13 @@ except ImportError:
 
 from flask import Flask
 from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
+
+from poker_web.backend.limiter import limiter
 
 # Configure logging
 logging.basicConfig(
@@ -36,15 +46,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create Flask app and limiter first (auth routes import limiter)
+# Create Flask app; bind limiter after app exists to avoid circular imports
 app = Flask(__name__)
 CORS(app, origins='*', supports_credentials=True)
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=[],
-    storage_uri="memory://",
-)
+limiter.init_app(app)
 # Prefer eventlet for WebSocket support; avoids Werkzeug "write() before start_response" on upgrade
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode=_async_mode)
 
